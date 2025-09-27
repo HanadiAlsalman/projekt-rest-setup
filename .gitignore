@@ -1,2 +1,39 @@
+# Node modules (måste alltid ignoreras)
 node_modules/
+
+# Miljövariabler (t.ex. lösenord, API-nycklar, db)
 .env
+
+
+db-credentials.js
+
+
+# Loggfiler
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specifika filer
+.DS_Store
+Thumbs.db
+
+# JetBrains (WebStorm, IntelliJ etc)
+.idea/
+
+# Lokala databasinställningar (om du kopplar till MySQL i IDE)
+.idea/dataSources/
+.idea/dataSources.ids
+.idea/dataSources.local.xml
+.idea/sqlDataSources.xml
+.idea/dynamic.xml
+.idea/uiDesigner.xml
+.idea/workspace.xml
+.idea/tasks.xml
+
+# VS Code-specifikt (om du också använder VS Code ibland)
+.vscode/
+
+# Byggfiler (om du transpilerar med Babel eller TypeScript)
+dist/
+build/
+

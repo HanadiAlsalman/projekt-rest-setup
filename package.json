@@ -1,0 +1,27 @@
+{
+  "name": "projekt-rest-setup",
+  "version": "1.0.0",
+  "description": "",
+  "main": "db-credentials.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HanadiAlsalman/projekt-rest-setup.git"
+  },
+  "keywords": [],
+  "author": "Hanadi Alsalman",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/HanadiAlsalman/projekt-rest-setup/issues"
+  },
+  "homepage": "https://github.com/HanadiAlsalman/projekt-rest-setup#readme",
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "mysql2": "^3.15.1"
+  }
+}
