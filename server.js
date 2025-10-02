@@ -153,6 +153,91 @@ app.get("/api/users", async (req, res) => {
   }
 })
 
+// Forums
+//1. Skapa forum (kräver inloggning)
+app.post("/api/forums/create", async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ message: "Måste vara inloggad" });
+  }
+
+  const { name, description } = req.body;
+  const creatorId = req.session.user.id;
+
+  try {
+    const [result] = await db.execute(
+      `INSERT INTO forums (name, description, creator_id, created_at, updated_at)
+       VALUES (?, ?, ?, NOW(), NOW())`,
+      [name, description || null, creatorId]
+    );
+    return res.status(201).json({ message: "Forum skapat!", forumId: result.insertId });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).json({ message: "Fel vid forumskapande" });
+  }
+});
+
+//2. alla kan se forum, ingen inloggning krävs
+app.get("/api/forums", async (req, res) => {
+  try {
+    const [forums] = await db.execute(`
+      SELECT f.id, f.name, f.description, f.created_at, u.username AS created_by
+      FROM forums f
+      JOIN users u ON f.creator_id = u.id
+      ORDER BY f.created_at DESC
+    `);
+
+    const formatted = forums.map(f => ({
+      id: f.id,
+      name: f.name,
+      description: f.description,
+      created_by: f.created_by,
+      created_at: f.created_at
+    }));
+
+    return res.status(200).json(formatted);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Fel vid hämtning av forum." });
+  }
+});
+
+//3. Hämtar forum baserat på namn
+app.get("/api/forums/search", async (req, res) => {
+  const query = req.query.query;
+
+  if (!query) {
+    return res.status(400).json({ message: "Sökord saknas." });
+  }
+
+  try {
+    const [results] = await db.execute(`
+      SELECT f.id, f.name, f.description, f.created_at, u.username AS created_by
+      FROM forums f
+      JOIN users u ON f.creator_id = u.id
+      WHERE f.name LIKE ? OR f.description LIKE ?
+      ORDER BY f.created_at DESC
+    `, [`%${query}%`, `%${query}%`]);
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: "Inga forum hittades." });
+    }
+
+    const formatted = results.map(f => ({
+      id: f.id,
+      name: f.name,
+      description: f.description,
+      created_by: f.created_by,
+      created_at: f.created_at
+    }));
+
+    return res.status(200).json(formatted);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Fel vid sökning." });
+  }
+});
+
+
 
 app.listen(port, () => {
   console.log(`Servern körs på http://localhost:${port}`);
