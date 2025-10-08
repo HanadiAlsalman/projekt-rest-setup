@@ -4,6 +4,8 @@ import dbCredentials from './db-credentials.js';
 import session from "express-session"
 import crypto from "crypto"
 
+
+
 const app = express();
 const port = 3000;
 
@@ -15,6 +17,7 @@ app.use(session({
   saveUninitialized: true, // spara en ny session som inte har blivit initialiserad
   cookie: {secure: false} // cookie-inställningar, secure bör vara true i produktion med HTTPS
 }))
+
 
 
 // Skapa anslutningen direkt vid start
