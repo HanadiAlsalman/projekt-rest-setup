@@ -5,10 +5,7 @@ import session from "express-session"
 import crypto from "crypto"
 
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 5129de5602cb9dd50483495f218e1271cd3c3ae4
 const app = express();
 const port = 3000;
 
