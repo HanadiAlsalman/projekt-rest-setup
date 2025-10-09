@@ -107,6 +107,11 @@ app.post("/api/users/login", async (req, res) => {
       return res.status(401).json({ message: "Felaktigt användarnamn eller lösenord." })
     }
 
+    // ACL: Kontrollera om kontot är aktivt
+        if (user.is_active === 0 || user.is_active === false) {
+            return res.status(401).json({ message: "Kontot är inaktiverat. Kontakta support." })
+        }
+
     // om user kunde logga in, byttas roller från anonymous till inloggad user
 
     req.session.user = {
