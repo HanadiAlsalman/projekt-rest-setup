@@ -386,19 +386,20 @@ app.get("/api/forums/search", async (req, res) => {
 
 
 // Threads
-//1. Skapa threads, kräver inloggning
+//1. Skapa threads (lägg in user som moderator direkt), kräver inloggning
 app.post("/api/threads/create", async (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ message: "Du måste vara inloggad för att skapa en tråd." });
   }
 
   const { title, description, forum, visibility } = req.body;
-if (!title || !forum) {
+  if (!title || !forum) {
   return res.status(400).json({ message: "Titel och forum krävs." });
 }
 
 const vis = visibility === "private" ? "private" : "public";
 
+//kontrollera att forumet finns
 const [fres] = await db.execute(
   `SELECT id FROM forums WHERE name = ?`,
   [forum]
@@ -415,13 +416,20 @@ const ownerId = req.session.user.id;
    VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
   [forumId, title, description || null, vis, ownerId]
 );
+   const threadId = result.insertId;
 
-    console.log("Skickade värden:", { title, description, forum, visibility });
+    // Lägg till skaparen som master moderator i thread_moderators tabellen
+    await db.execute(
+      `INSERT INTO thread_moderators (thread_id, user_id, role) 
+       VALUES (?, ?, 'master')`,
+      [threadId, ownerId]
+    );
 
     return res.status(201).json({
-      message: "Tråd skapad.",
-      threadId: result.insertId
+      message: "Tråd skapad och du har utsetts till master moderator.",
+      threadId: threadId
     });
+
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: "Fel vid skapande av tråd." });
@@ -445,6 +453,150 @@ app.get("/api/threads", async (req, res) => {
     return res.status(500).json({ message: "Fel vid hämtning trådar." });
   }
 });
+
+//3. hämtar tråd efter id där accesskontroll sker på privata trådar.
+app.get("/api/threads/:id", async (req, res) => {
+  const threadId = req.params.id;
+  const user = req.session.user;
+
+  const [threads] = await db.execute(`
+    SELECT * FROM threads WHERE id = ?
+  `, [threadId]);
+
+  const thread = threads[0];
+  if (!thread) return res.status(404).json({ message: "Tråden finns inte." });
+
+  // ACL: kontrollera Privata trådar får bara visas för trådskapare & inbjudna moderatorer
+  if (thread.visibility === 'private') {
+    if (!user) return res.status(403).json({ message: "Privat tråd, du är inte inloggad." });
+
+    // Är user ägare eller moderator
+    const [mods] = await db.execute(`
+      SELECT * FROM thread_moderators WHERE user_id = ? AND thread_id = ?
+    `, [user.id, threadId]);
+
+    if (user.id !== thread.owner_id && mods.length === 0) {
+      return res.status(403).json({ message: "Privat tråd. Du har inte access." });
+    }
+  }
+
+  return res.json(thread);
+});
+
+
+// 4. Trådägare kan bjuda in andra users till sin tråd
+app.post("/api/threads/:id/moderators", async (req, res) => {
+  const threadId = req.params.id;
+  const { userId: userIdToInvite } = req.body;
+  const threadUser = req.session.user;
+
+  // Kontrollera inloggning
+  if (!threadUser) {
+    return res.status(401).json({ message: "Du måste vara inloggad." });
+  }
+
+  // Förhindra att man bjuder in sig själv
+  if (String(userIdToInvite) === String(threadUser.id)) {
+    return res.status(400).json({ message: "Du kan inte bjuda in dig själv." });
+  }
+
+  try {
+    // Kontrollera att användaren är master moderator i tråden
+    const [mods] = await db.execute(
+      `SELECT role FROM thread_moderators WHERE user_id = ? AND thread_id = ?`,
+      [threadUser.id, threadId]
+    );
+
+    if (mods.length === 0) {
+      return res.status(403).json({ message: "Du är inte moderator för denna tråd." });
+    }
+
+    const isMasterModerator = mods[0].role === "master";
+
+    if (!isMasterModerator) {
+      return res.status(403).json({ message: "Endast huvudansvarig mastermoderator kan bjuda in nya moderatorer." });
+    }
+
+    // Lägg till den nya användaren som ASSISTANT moderator
+    await db.execute(
+      `INSERT INTO thread_moderators (user_id, thread_id, role, assigned_at)
+       VALUES (?, ?, 'helper', NOW())`,
+      [userIdToInvite, threadId]
+    );
+
+    return res.json({ message: "Helpmoderator har utsett till thread " });
+
+  } catch (err) {
+    // Hantera om användaren redan är moderator
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "Användaren är redan moderator för denna tråd." });
+    }
+    console.error(err);
+    return res.status(500).json({ message: "Fel vid tillägg av moderator." });
+  }
+});
+
+// 5. Ta bort som soft delete en moderator från en tråd
+app.delete("/api/threads/:id/moderators/:userId", async (req, res) => {
+  const threadId = req.params.id;
+  const userIdToRemove = req.params.userId;
+  const threadUser = req.session.user;
+
+  // ACL: Kontrollera att användaren är inloggad
+  if (!threadUser) {
+    return res.status(401).json({ message: "Du måste vara inloggad." });
+  }
+
+  try {
+    // Kontrollera att användaren är moderator i tråden
+    const [mods] = await db.execute(
+      `SELECT role FROM thread_moderators WHERE user_id = ? AND thread_id = ?`,
+      [threadUser.id, threadId]
+    );
+
+    if (mods.length === 0) {
+      return res.status(403).json({ message: "Du är inte moderator för denna tråd." });
+    }
+
+    const isMasterModerator = mods[0].role === "master";
+
+    // Endast master får ta bort andra moderatorer
+    if (!isMasterModerator) {
+      return res.status(403).json({ message: "Endast huvudansvarig masterModerator kan ta bort moderatorer." });
+    }
+
+    // Förhindra att master tar bort sig själv
+    if (String(threadUser.id) === String(userIdToRemove)) {
+      return res.status(400).json({ message: "Du kan inte ta bort dig själv som huvudmoderator." });
+    }
+
+    // Kontrollera att den andra användaren verkligen är aktiv moderator
+    const [targetMods] = await db.execute(
+      `SELECT * FROM thread_moderators WHERE user_id = ? AND thread_id = ? AND is_active = 1`,
+      [userIdToRemove, threadId]
+    );
+
+    if (targetMods.length === 0) {
+      return res.status(404).json({ message: "Användaren är inte aktiv moderator i denna tråd." });
+    }
+
+    // Soft delete: sätt is_active = 0
+    await db.execute(
+      `UPDATE thread_moderators 
+       SET is_active = 0
+       WHERE user_id = ? AND thread_id = ?`,
+      [userIdToRemove, threadId]
+    );
+
+    return res.json({ message: "Moderator har inaktiverats (soft delete)." });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Fel vid borttagning av moderator." });
+  }
+});
+
+
 
 
 
