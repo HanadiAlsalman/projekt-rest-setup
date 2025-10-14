@@ -59,7 +59,7 @@ app.get('/check-session', (req, res) => {
 })
 
 // access control list middleware
-app.use(acl)
+//app.use(acl)
 
 // 1. Registrera ny användare
 // ACL: det kräver birth_date och validerar ålder 18
