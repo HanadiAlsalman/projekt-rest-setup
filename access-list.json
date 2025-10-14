@@ -1,0 +1,112 @@
+[
+  {
+    "url": "/api/users/register",
+    "accesses": [
+      {
+        "roles": ["anonymous"],
+        "methods": ["POST"],
+        "description": "Användarregistrering. Kräver åldersvalidering i endpoint."
+      }
+    ]
+  },
+  {
+    "url": "/api/users/login",
+    "accesses": [
+      {
+        "roles": ["anonymous"],
+        "methods": ["POST"],
+        "description": "Användarinloggning."
+      }
+    ]
+  },
+  {
+    "url": "/api/users/logout",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["DELETE"],
+        "description": "Användarutloggning."
+      }
+    ]
+  },
+  {
+    "url": "/api/users/profil",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["GET", "PUT"],
+        "description": "Hämta och uppdatera egen profil."
+      }
+    ]
+  },
+  {
+    "url": "/api/users",
+    "accesses": [
+      {
+        "roles": ["admin"],
+        "methods": ["GET"],
+        "description": "Lista alla användare (endast admin)."
+      }
+    ]
+  },
+  {
+    "url": "/api/admin/users/freeze/:id",
+    "accesses": [
+      {
+        "roles": ["admin"],
+        "methods": ["PUT"],
+        "description": "Frys/aktivera konto (endast admin)."
+      }
+    ]
+  },
+  {
+    "url": "/api/forums/create",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["POST"],
+        "description": "Skapa nytt forum (kräver inloggning)."
+      }
+    ]
+  },
+  {
+    "url": "/api/forums",
+    "accesses": [
+      {
+        "roles": ["*"],
+        "methods": ["GET"],
+        "description": "Hämta alla forum (alla användare)."
+      }
+    ]
+  },
+  {
+    "url": "/api/forums/search",
+    "accesses": [
+      {
+        "roles": ["*"],
+        "methods": ["GET"],
+        "description": "Sök forum (alla användare)."
+      }
+    ]
+  },
+  {
+    "url": "/api/threads/create",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["POST"],
+        "description": "Skapa tråd (kräver inloggning). Obs: Hanterar inte transaktionslogiken."
+      }
+    ]
+  },
+  {
+    "url": "/api/threads",
+    "accesses": [
+      {
+        "roles": ["*"],
+        "methods": ["GET"],
+        "description": "Hämta alla publika trådar (alla användare)."
+      }
+    ]
+  }
+]
