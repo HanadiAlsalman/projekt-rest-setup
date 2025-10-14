@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';
 import dbCredentials from './db-credentials.js';
 import session from "express-session"
 import crypto from "crypto"
+import bcrypt from 'bcrypt';
 
 
 const app = express();
@@ -26,11 +27,24 @@ app.get("/", async (req, res) => {
   res.json({ message: "Servern är igång" });
 });
 
+
+// Osäker: statiskt salt, synkront
 // Hashfunktion
 function hash(word) {
   const salt = "mitt-salt"
   return crypto.pbkdf2Sync(word, salt, 1000, 64, "sha512").toString("hex")
 }
+
+/*
+
+const saltRounds = 10; // Högre värde ger bättre säkerhet, men långsammare
+
+// Ny registrering:
+const passwordHash = await bcrypt.hash(password, saltRounds);
+
+// Ny inloggning:
+const match = await bcrypt.compare(password, user.password_hash);
+if (!match) {  Fel lösenord  }*/
 
 // Kontrollera om user är 18 år
 function isOver18(birthDateString) {
@@ -60,8 +74,11 @@ app.get('/check-session', (req, res) => {
 // ACL: det kräver birth_date och validerar ålder 18
 app.post("/api/users/register", async (req, res) => {
   const { username, email, password, birth_date } = req.body
-  if (!username || !email || !password || !birth_date) {
-    return res.status(400).json({ message: "Fyll i alla fält & födelsedatum YYYY-MM-DD" })
+    // Kontrollerar längd för både användarnamn och lösenord
+  if (!username || username.length < 3 || username.length > 50
+      || !email || !password || password.length < 8
+      || !birth_date) {
+    return res.status(400).json({ message: "Fyll i alla fält: Användarnamn 3-50 tecken & Lösenord minst 8 tecken & födelsedatum YYYY-MM-DD" })
   }
 
   // Ålderskontroll
@@ -77,7 +94,8 @@ app.post("/api/users/register", async (req, res) => {
 
     return res.status(201).json({ message: "Användare skapad", userId: result.insertId })
   } catch (err) {
-    console.log(err)
+    console.log("Fel vid registrering:", err)
+
     return res.status(500).json({ message: "Fel vid registrering" })
   }
 })
@@ -148,7 +166,7 @@ app.delete("/api/users/logout", (req, res) => {
 app.get("/api/users/profil", async (req, res) => {
   //ACL: kontrollera att user måste vara inloggad (user, moderator, admin)
   if (!req.session.user) {
-    return res.status(401).json({ message: "Du är inte inloggad. Kräver roll: user/moderator/admin" })
+    return res.status(401).json({ message: "Du är inte inloggad" })
   }
 
   const userId = req.session.user.id
