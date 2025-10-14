@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';
 import dbCredentials from './db-credentials.js';
 import session from "express-session"
 import crypto from "crypto"
+import acl from "./acl.js"
 
 
 
@@ -57,6 +58,8 @@ app.get('/check-session', (req, res) => {
   }
 })
 
+// access control list middleware
+app.use(acl)
 
 // 1. Registrera ny användare
 // ACL: det kräver birth_date och validerar ålder 18
