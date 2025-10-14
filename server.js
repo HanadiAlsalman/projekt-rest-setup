@@ -4,6 +4,8 @@ import dbCredentials from './db-credentials.js';
 import session from "express-session"
 import crypto from "crypto"
 import acl from "./acl.js"
+import bcrypt from 'bcrypt'; // npm install bcrypt
+import rateLimit from 'express-rate-limit'; // npm install express-rate-limit
 
 
 
@@ -11,6 +13,45 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
+
+
+// 1. Grundläggande Rate Limit (Global)
+// Tillåter 100 anrop per IP var 15:e minut för alla endpoints (förutom de som har en striktare limit)
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minuter
+    max: 100, // Max 100 anrop per IP
+    message: "För många anrop från denna IP, försök igen om 15 minuter."
+});
+
+// 2. Strikt limit för känsliga anrop (Registrering/Login)
+// Tillåter endast 5 anrop var 5:e minut per IP, vilket är bra mot massregistrering.
+const strictLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minuter
+    max: 5, // Max 5 anrop per IP
+    message: JSON.stringify({ message: "För många registreringsförsök från denna IP, vänta 5 minuter innan du försöker igen." }),
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// 3. Admin Limit för administrativa funktioner
+// Mycket strikt limit, 5 anrop per timme.
+const adminLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 timme
+    max: 5, // Max 5 anrop per IP per timme
+    message: JSON.stringify({ message: "För många administrativa anrop från denna IP, vänta en timme innan du försöker igen." }),
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// 4. Profiluppdatering (5 gånger per timme)
+const profileUpdateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 timme
+    max: 5, // Max 5 anrop per IP per timme
+    message: JSON.stringify({ message: "Du har uppnått max antal profiluppdateringar (5/timme). Försök igen senare." }),
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 
 app.use(session({
   secret: 'min-hemlighet', // en hemlig nyckel för att signera session-cookie
@@ -29,11 +70,24 @@ app.get("/", async (req, res) => {
   res.json({ message: "Servern är igång" });
 });
 
-// Hashfunktion
+// Hashfunktion , crypto säkerhetnivå är låg till medel
 function hash(word) {
   const salt = "mitt-salt"
   return crypto.pbkdf2Sync(word, salt, 1000, 64, "sha512").toString("hex")
 }
+
+/*
+// för hög säkerhet nivå används bcrypto
+// https://medium.com/@bhupendra_Maurya/password-hashing-using-bcrypt-e36f5c655e09
+const saltRounds = 10; // Högre värde ger bättre säkerhet, men långsammare
+
+// Ny registrering:
+const passwordHash = await bcrypt.hash(password, saltRounds);
+
+// Ny inloggning:
+const match = await bcrypt.compare(password, user.password_hash);
+if (!match) {  Fel lösenord  }*/
+
 
 // Kontrollera om user är 18 år
 function isOver18(birthDateString) {
@@ -48,7 +102,7 @@ function isOver18(birthDateString) {
     return age >= 18;
 }
 
-app.get('/check-session', (req, res) => {
+app.get('/check-session', apiLimiter, (req, res) => {
   if (req.session.page_views){
     req.session.page_views++;
     res.send(`Du har besökt denna sida ${req.session.page_views} gånger`);
@@ -63,9 +117,13 @@ app.get('/check-session', (req, res) => {
 
 // 1. Registrera ny användare
 // ACL: det kräver birth_date och validerar ålder 18
-app.post("/api/users/register", async (req, res) => {
+app.post("/api/users/register", strictLimiter, async (req, res) => {
   const { username, email, password, birth_date } = req.body
-  if (!username || !email || !password || !birth_date) {
+    //   // Kontrollerar längd för både användarnamn och lösenord
+  if (!username || username.length < 3 || username.length > 50 ||
+      !email ||
+      !password || password.length < 8 ||
+      !birth_date) {
     return res.status(400).json({ message: "Fyll i alla fält & födelsedatum YYYY-MM-DD" })
   }
 
@@ -89,7 +147,7 @@ app.post("/api/users/register", async (req, res) => {
 
 
 // 2. Logga in
-app.post("/api/users/login", async (req, res) => {
+app.post("/api/users/login", strictLimiter, async (req, res) => {
 // ACL: förhindra inloggade igen om user är redan inloggad
   if (req.session.user) {
     return res.status(400).json({ message: "Redan inloggad. Logga ut först" })
@@ -150,10 +208,10 @@ app.delete("/api/users/logout", (req, res) => {
 })
 
 // 4. Hämta inloggad användares profil
-app.get("/api/users/profil", async (req, res) => {
+app.get("/api/users/profil", apiLimiter, async (req, res) => {
   //ACL: kontrollera att user måste vara inloggad (user, moderator, admin)
   if (!req.session.user) {
-    return res.status(401).json({ message: "Du är inte inloggad. Kräver roll: user/moderator/admin" })
+    return res.status(401).json({ message: "Du är inte inloggad." })
   }
 
   const userId = req.session.user.id
@@ -171,7 +229,7 @@ app.get("/api/users/profil", async (req, res) => {
 })
 
 // 5. Uppdatera egen profil (Email & Lösenord)
-app.put("/api/users/profil", async (req, res) => {
+app.put("/api/users/profil", profileUpdateLimiter, async (req, res) => {
 
     // ACL: Måste vara inloggad (user, moderator eller admin)
     if (!req.session.user) {
@@ -258,7 +316,7 @@ app.get("/api/users", async (req, res) => {
 
 // 7. Frys/aktivera userskonto, admins roll
 // ACL: admins roll
-app.put("/api/admin/users/freeze/:id", async (req, res) => {
+app.put("/api/admin/users/freeze/:id", adminLimiter, async (req, res) => {
 
     // ACL: måste vara inloggad
     if (!req.session.user) {
@@ -270,17 +328,23 @@ app.put("/api/admin/users/freeze/:id", async (req, res) => {
         return res.status(403).json({ message: `Åtkomst nekad. Din roll (${req.session.user.role}) är inte tillräcklig, det kräver roll: admin` });
     }
 
+    const adminId = req.session.user.id // fånga inloggad admins id
     const userIdToFreeze = req.params.id;
-    const { is_active } = req.body;
+    const { is_active, reason } = req.body; // kräv en anledning
 
     // Validera inmatning
     if (typeof is_active !== 'boolean') {
          return res.status(400).json({ message: "Status måste vara true (aktiv) eller false (frys)." });
     }
 
+    // kräv en anledning för administrativa åtgärder
+    if (!reason || reason.trim().length<5) {
+        return res.status(400).json({message: "En kort anledning (minst 5 tecken) krävs för denna åtgärd."})
+    }
+
     // ACL: Förhindra att admin fryser sitt eget konto
     if (String(userIdToFreeze) === String(req.session.user.id)) {
-        return res.status(400).json({ message: "Du kan inte ändra statusen på ditt eget administratörskonto." });
+        return res.status(403).json({ message: "Du kan inte ändra statusen på ditt eget administratörskonto." });
     }
 
     try {
@@ -295,6 +359,9 @@ app.put("/api/admin/users/freeze/:id", async (req, res) => {
         }
 
         const action = is_active ? "aktiverats" : "frysts";
+        // hård ACL: Lägg till Revisionsspår (Auditing)
+        console.log(`Admin ID ${adminId} har ${action} konto ID ${userIdToFreeze}. Anledning: ${reason}`);
+
         return res.status(200).json({ message: `Userskonto med ID ${userIdToFreeze} har ${action}.` });
 
     } catch (err) {
@@ -305,7 +372,7 @@ app.put("/api/admin/users/freeze/:id", async (req, res) => {
 
 // Forums
 //1. Skapa forum (kräver inloggning)
-app.post("/api/forums/create", async (req, res) => {
+app.post("/api/forums/create", apiLimiter, async (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ message: "Måste vara inloggad" });
   }
@@ -327,7 +394,7 @@ app.post("/api/forums/create", async (req, res) => {
 });
 
 //2. alla kan se forum, ingen inloggning krävs
-app.get("/api/forums", async (req, res) => {
+app.get("/api/forums", apiLimiter, async (req, res) => {
   try {
     const [forums] = await db.execute(`
       SELECT f.id, f.name, f.description, f.created_at, u.username AS created_by
@@ -352,7 +419,7 @@ app.get("/api/forums", async (req, res) => {
 });
 
 //3. Hämtar forum baserat på namn
-app.get("/api/forums/search", async (req, res) => {
+app.get("/api/forums/search", apiLimiter, async (req, res) => {
   const query = req.query.query;
 
   if (!query) {
@@ -390,7 +457,7 @@ app.get("/api/forums/search", async (req, res) => {
 
 // Threads
 //1. Skapa threads (lägg in user som moderator direkt), kräver inloggning
-app.post("/api/threads/create", async (req, res) => {
+app.post("/api/threads/create", apiLimiter, async (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ message: "Du måste vara inloggad för att skapa en tråd." });
   }
@@ -440,7 +507,7 @@ const ownerId = req.session.user.id;
 });
 
 //2. hämta alla public trådar, ingen inloggning krävs
-app.get("/api/threads", async (req, res) => {
+app.get("/api/threads", apiLimiter, async (req, res) => {
   try {
     const [results] = await db.execute(`
       SELECT t.id, t.title, t.created_at AS created, u.username AS owner, f.name AS forum
@@ -488,7 +555,7 @@ app.get("/api/threads/:id", async (req, res) => {
 
 
 // 4. Trådägare kan bjuda in andra users till sin tråd
-app.post("/api/threads/:id/moderators", async (req, res) => {
+app.post("/api/threads/:id/moderators", apiLimiter, async (req, res) => {
   const threadId = req.params.id;
   const { userId: userIdToInvite } = req.body;
   const threadUser = req.session.user;
@@ -540,7 +607,7 @@ app.post("/api/threads/:id/moderators", async (req, res) => {
 });
 
 // 5. Ta bort som soft delete en moderator från en tråd
-app.delete("/api/threads/:id/moderators/:userId", async (req, res) => {
+app.delete("/api/threads/:id/moderators/:userId", apiLimiter, async (req, res) => {
   const threadId = req.params.id;
   const userIdToRemove = req.params.userId;
   const threadUser = req.session.user;
