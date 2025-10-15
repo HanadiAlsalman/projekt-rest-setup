@@ -108,5 +108,35 @@
         "description": "Hämta alla publika trådar (alla användare)."
       }
     ]
+  },
+  {
+    "url": "/api/threads/:id",
+    "accesses": [
+      {
+        "roles": ["*"],
+        "methods": ["GET"],
+        "description": "Hämta specifik tråd. ACL (publik) sker i endpoint."
+      }
+    ]
+  },
+  {
+    "url": "/api/threads/:id/moderators",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["POST"],
+        "description": "Bjuda in moderator. ACL (master-roll) sker i endpoint."
+      }
+    ]
+  },
+  {
+    "url": "/api/threads/:id/moderators/:userId",
+    "accesses": [
+      {
+        "roles": ["user", "admin"],
+        "methods": ["DELETE"],
+        "description": "Ta bort moderator (soft delete). ACL (master-roll) sker i endpoint."
+      }
+    ]
   }
 ]

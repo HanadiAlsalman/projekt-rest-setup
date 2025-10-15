@@ -13,6 +13,8 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
+// access control list middleware
+//app.use(acl)
 
 
 // 1. Grundläggande Rate Limit (Global)
@@ -54,7 +56,7 @@ const profileUpdateLimiter = rateLimit({
 
 
 app.use(session({
-  secret: 'min-hemlighet', // en hemlig nyckel för att signera session-cookie
+  secret: process.env.HASH_COOK, // en hemlig nyckel för att signera session-cookie
   resave: false, // undviker att spara sessionen om den inte ändras
   saveUninitialized: true, // spara en ny session som inte har blivit initialiserad
   cookie: {secure: false} // cookie-inställningar, secure bör vara true i produktion med HTTPS
@@ -72,7 +74,7 @@ app.get("/", async (req, res) => {
 
 // Hashfunktion , crypto säkerhetnivå är låg till medel
 function hash(word) {
-  const salt = "mitt-salt"
+  const salt = process.env.HASH_SALT
   return crypto.pbkdf2Sync(word, salt, 1000, 64, "sha512").toString("hex")
 }
 
@@ -112,8 +114,6 @@ app.get('/check-session', apiLimiter, (req, res) => {
   }
 })
 
-// access control list middleware
-//app.use(acl)
 
 // 1. Registrera ny användare
 // ACL: det kräver birth_date och validerar ålder 18
@@ -141,7 +141,7 @@ app.post("/api/users/register", strictLimiter, async (req, res) => {
     return res.status(201).json({ message: "Användare skapad", userId: result.insertId })
   } catch (err) {
     console.log(err)
-    return res.status(500).json({ message: "Fel vid registrering" })
+    return res.status(500).json({ message: "Internal Server Error" }) // för att undvika informationsläckage
   }
 })
 
@@ -161,7 +161,7 @@ app.post("/api/users/login", strictLimiter, async (req, res) => {
   try {
     // försök hitta användaren i db baserade på usernamn
     const [result] = await db.execute(`
-      SELECT * FROM users WHERE username = ?
+      SELECT * FROM users WHERE username = ? 
     `, [username])
 
     const user = result[0]
@@ -186,7 +186,7 @@ app.post("/api/users/login", strictLimiter, async (req, res) => {
     return res.status(200).json({ message: `Välkommen ${user.username}` })
   } catch (err) {
     console.log(err)
-    return res.status(500).json({ message: "Fel vid inloggning" })
+    return res.status(500).json({ message: "Internal Server Error" })//för att undvika informationsläckage
   }
 })
 
@@ -200,7 +200,7 @@ app.delete("/api/users/logout", (req, res) => {
 
   req.session.destroy(err => {
     if (err) {
-      return res.status(500).json({ message: "Fel vid utloggning." })
+      return res.status(500).json({ message: "Internal Server Error" })
     }
 
     return res.json({ message: "Du är utloggad." })
@@ -224,7 +224,7 @@ app.get("/api/users/profil", apiLimiter, async (req, res) => {
     return res.json(result[0])
   } catch (err) {
     console.log(err)
-    return res.status(500).json({ message: "Fel vid hämtning av profil." })
+    return res.status(500).json({ message: "Internal Server Error" }) // för att förhindra informationsläckage.
   }
 })
 
@@ -287,7 +287,7 @@ app.put("/api/users/profil", profileUpdateLimiter, async (req, res) => {
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ message: "Den angivna e-postadressen används redan av ett annat konto." });
         }
-        return res.status(500).json({ message: "Fel vid uppdatering av profilen." });
+        return res.status(500).json({ message: "Internal Server Error" });
     }
 });
 
@@ -310,7 +310,7 @@ app.get("/api/users", async (req, res) => {
     return res.json(result);
   } catch (err) {
     console.log(err);
-    return res.status(500).json({ message: "Fel vid hämtning av användare." });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 })
 
@@ -329,7 +329,23 @@ app.put("/api/admin/users/freeze/:id", adminLimiter, async (req, res) => {
     }
 
     const adminId = req.session.user.id // fånga inloggad admins id
-    const userIdToFreeze = req.params.id;
+    // Hämta ID som sträng från URL
+    const userIdToFreezeRaw = req.params.id;
+
+   // Försök konvertera till heltal (integer)
+   const userIdToFreeze = parseInt(userIdToFreezeRaw, 10);
+
+   //Kontrollera strikt att den ursprungliga strängen
+  // inte innehöll några skräptecken efter numret.
+  if (userIdToFreeze.toString() !== userIdToFreezeRaw) {
+     // Detta fångar "2-3" eftersom 2.toString() är "2", men userIdToFreezeRaw är "2-3"
+     return res.status(400).json({ message: "Ogiltigt användar-ID i URL. Endast heltal tillåts." });
+}
+
+   // Kontrollera att konverteringen lyckades och att ID är ett positivt nummer
+   if (isNaN(userIdToFreeze) || userIdToFreeze <= 0) {
+    return res.status(400).json({ message: "Ogiltigt användar-ID i URL" });
+   }
     const { is_active, reason } = req.body; // kräv en anledning
 
     // Validera inmatning
@@ -366,7 +382,7 @@ app.put("/api/admin/users/freeze/:id", adminLimiter, async (req, res) => {
 
     } catch (err) {
         console.error("Fel vid frysning/aktivering av konto:", err);
-        return res.status(500).json({ message: "Internt serverfel vid uppdatering av userstatus." });
+        return res.status(500).json({ message: "Internal Server Error" });
     }
 });
 
@@ -389,7 +405,7 @@ app.post("/api/forums/create", apiLimiter, async (req, res) => {
     return res.status(201).json({ message: "Forum skapat!", forumId: result.insertId });
   } catch (e) {
     console.log(e);
-    return res.status(500).json({ message: "Fel vid forumskapande" });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -414,7 +430,7 @@ app.get("/api/forums", apiLimiter, async (req, res) => {
     return res.status(200).json(formatted);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Fel vid hämtning av forum." });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -450,7 +466,7 @@ app.get("/api/forums/search", apiLimiter, async (req, res) => {
     return res.status(200).json(formatted);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Fel vid sökning." });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -520,7 +536,7 @@ app.get("/api/threads", apiLimiter, async (req, res) => {
     return res.json(results);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Fel vid hämtning trådar." });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -602,7 +618,7 @@ app.post("/api/threads/:id/moderators", apiLimiter, async (req, res) => {
       return res.status(409).json({ message: "Användaren är redan moderator för denna tråd." });
     }
     console.error(err);
-    return res.status(500).json({ message: "Fel vid tillägg av moderator." });
+    return res.status(500).json({ message: "Internal Server Error" }); // för att undvika att avslöja känsliga databasdetaljer.
   }
 });
 
@@ -662,7 +678,7 @@ app.delete("/api/threads/:id/moderators/:userId", apiLimiter, async (req, res) =
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Fel vid borttagning av moderator." });
+    return res.status(500).json({ message: "Internal Server Error" });// för att undvika att avslöja känsliga databasdetaljer.
   }
 });
 
